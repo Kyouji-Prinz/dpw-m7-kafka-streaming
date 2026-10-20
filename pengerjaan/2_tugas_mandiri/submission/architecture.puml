@@ -1,0 +1,57 @@
+@startuml
+!theme plain
+skinparam roundcorner 10
+skinparam defaultFontName Arial
+skinparam sequenceMessageAlign center
+skinparam componentStyle uml2
+
+title Arsitektur Stream Pemrosesan Event Pembayaran (M7 Tantangan Mandiri)
+
+actor "Event Producer\n(payment-events.json)" as Producer #LightCyan
+
+package "Apache Kafka Cluster" #AliceBlue {
+    node "Topic: dpw3-payment-events\n(Partition Count: 3)" as Topic {
+        queue "Partition 0\n[Key: ORD-01]\nPAY-001 (CREATED)\nPAY-003 (PAID)\nPAY-006 (SHIPPED)" as P0 #LightGoldenRodYellow
+        queue "Partition 1\n[Key: ORD-03]\nPAY-004 (CREATED)\nPAY-007 (PAID)" as P1 #LightPink
+        queue "Partition 2\n[Key: ORD-02]\nPAY-002 (CREATED)\nPAY-005 (PAID)\nPAY-008 (SHIPPED)" as P2 #LightGreen
+    }
+    database "__consumer_offsets\n(Committed Offsets)" as OffsetStore #Thistle
+}
+
+package "Consumer Group: dpw3-case" #GhostWhite {
+    component "Consumer Worker\n(app/consumer.py)" as Consumer #LightSalmon
+    component "State Engine & Business Processing\n(FIFO per Order Validation)" as Engine #Wheat
+}
+
+' Event Ingestion & Partitioning
+Producer --> P0 : Murmur2 Hash(ORD-01) -> P0\n[Strict FIFO Ordering]
+Producer --> P1 : Murmur2 Hash(ORD-03) -> P1\n[Strict FIFO Ordering]
+Producer --> P2 : Murmur2 Hash(ORD-02) -> P2\n[Strict FIFO Ordering]
+
+' Consumption & Parallel/Sequential Handling
+P0 --> Consumer : Fetch records sequentially
+P1 --> Consumer : Fetch records sequentially
+P2 --> Consumer : Fetch records sequentially
+
+Consumer --> Engine : Process Event (State Transitions)
+Engine --> Consumer : Ack Completion
+Consumer --> OffsetStore : Commit Offset (At-least-once: Post-Process)
+
+note bottom of Producer
+  <b>Kunci Penentu Ordering:</b>
+  Setiap event dikirim menggunakan:
+  <code>key = event["order_id"]</code>
+  Kafka menjamin seluruh event dengan key yang sama
+  masuk ke partisi yang sama secara deterministik.
+end note
+
+note bottom of Consumer
+  <b>Delivery Semantics & Failure Recovery:</b>
+  • <code>enable.auto.commit = False</code>
+  • Manual sync commit setelah pemrosesan record berhasil.
+  • Jika terjadi crash sebelum commit (misal FAIL_AFTER),
+    offset belum tersimpan, sehingga saat recovery consumer
+    dapat membaca ulang dari committed offset terakhir tanpa data hilang.
+end note
+
+@enduml

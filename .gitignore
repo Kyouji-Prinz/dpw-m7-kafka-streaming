@@ -1,0 +1,20 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+
+# Virtual environment
+.venv/
+env/
+venv/
+
+# Temporary Microsoft Office files
+~$*.docx
+~$*.pptx
+~$*.xlsx
+
+# OS generated files
+desktop.ini
+Thumbs.db
+.DS_Store
